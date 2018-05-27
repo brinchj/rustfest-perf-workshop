@@ -36,18 +36,18 @@ impl PartialEq for Value {
     }
 }
 
-pub fn eval(program: Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value {
+pub fn eval(program: &Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value {
     use self::Ast::*;
     use self::Value::*;
 
-    match program {
-        Lit(val) => val,
-        Variable(name) => match variables.get(&name) {
+    match *program {
+        Lit(ref val) => val.clone(),
+        Variable(ref name) => match variables.get(name) {
             Some(v) => v.clone(),
             _ => panic!("Variable does not exist: {}", &name),
         },
-        Call(func, arguments) => {
-            let func = eval(*func, variables);
+        Call(ref func, ref arguments) => {
+            let func = eval(&func, variables);
 
             match func {
                 Function(args, body) => {
@@ -60,14 +60,14 @@ pub fn eval(program: Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value {
                     }
 
                     for (name, val) in args.into_iter().zip(arguments) {
-                        let val = eval(val, variables);
+                        let val = eval(&val, variables);
                         new_scope.insert(name.into(), val);
                     }
 
                     let mut out = Void;
 
                     for stmt in body {
-                        out = eval(stmt, &mut new_scope);
+                        out = eval(&stmt, &mut new_scope);
                     }
 
                     out
@@ -75,16 +75,16 @@ pub fn eval(program: Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value {
                 InbuiltFunc(func) => func(
                     arguments
                         .into_iter()
-                        .map(|ast| eval(ast, variables))
+                        .map(|ast| eval(&ast, variables))
                         .collect(),
                 ),
                 _ => panic!("Attempted to call a non-function"),
             }
         }
-        Define(name, value) => {
-            let value = eval(*value, variables);
+        Define(ref name, ref value) => {
+            let value = eval(&value, variables);
 
-            variables.insert(name.into(), value);
+            variables.insert(name.to_owned().into(), value);
 
             Void
         }
@@ -355,7 +355,7 @@ someval
 
         let (program, _) = expr().easy_parse(DEEP_NESTING).unwrap();
 
-        b.iter(|| black_box(eval(program.clone(), &mut env)));
+        b.iter(|| black_box(eval(&program, &mut env)));
     }
 
     #[bench]
@@ -375,7 +375,7 @@ someval
         b.iter(|| {
             let mut env = env.clone();
             for line in &program {
-                black_box(eval(line.clone(), &mut env));
+                black_box(eval(&line, &mut env));
             }
         });
     }
@@ -399,7 +399,7 @@ someval
 
         env.insert("ignore".to_owned().into(), Value::InbuiltFunc(ignore));
 
-        b.iter(|| black_box(eval(program.clone(), &mut env)));
+        b.iter(|| black_box(eval(&program, &mut env)));
     }
 
     #[bench]
@@ -408,6 +408,6 @@ someval
 
         let (program, _) = expr().easy_parse(NESTED_FUNC).unwrap();
         let mut env = HashMap::new();
-        b.iter(|| black_box(eval(program.clone(), &mut env)));
+        b.iter(|| black_box(eval(&program, &mut env)));
     }
 }
