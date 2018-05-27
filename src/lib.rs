@@ -2,9 +2,10 @@
 
 #[macro_use]
 extern crate combine;
+extern crate im;
 
-use std::rc::Rc;
-use std::collections::HashMap;
+use im::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum Ast {
@@ -36,12 +37,12 @@ impl PartialEq for Value {
     }
 }
 
-pub fn eval(program: &Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value {
+pub fn eval(program: &Ast, variables: &mut HashMap<String, Value>) -> Arc<Value> {
     use self::Ast::*;
     use self::Value::*;
 
     match *program {
-        Lit(ref val) => val.clone(),
+        Lit(ref val) => Arc::new(val.clone()),
         Variable(ref name) => match variables.get(name) {
             Some(v) => v.clone(),
             _ => panic!("Variable does not exist: {}", &name),
@@ -49,11 +50,11 @@ pub fn eval(program: &Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value 
         Call(ref func, ref arguments) => {
             let func = eval(&func, variables);
 
-            match func {
-                Function(args, body) => {
+            match *func {
+                Function(ref args, ref body) => {
                     // Start a new scope, so all variables defined in the body of the
                     // function don't leak into the surrounding scope.
-                    let mut new_scope = variables.clone();
+                    let mut new_scope: im::HashMap<String, Value> = variables.clone();
 
                     if arguments.len() != args.len() {
                         println!("Called function with incorrect number of arguments (expected {}, got {})", args.len(), arguments.len());
@@ -61,10 +62,10 @@ pub fn eval(program: &Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value 
 
                     for (name, val) in args.into_iter().zip(arguments) {
                         let val = eval(&val, variables);
-                        new_scope.insert(name.into(), val);
+                        new_scope.insert_mut(Arc::new(name.to_owned()), val);
                     }
 
-                    let mut out = Void;
+                    let mut out = Arc::new(Void);
 
                     for stmt in body {
                         out = eval(&stmt, &mut new_scope);
@@ -72,11 +73,11 @@ pub fn eval(program: &Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value 
 
                     out
                 }
-                InbuiltFunc(func) => func(
+                InbuiltFunc(func) => Arc::new(func(
                     arguments
                         .into_iter()
-                        .map(|ast| eval(&ast, variables))
-                        .collect(),
+                        .map(|ast| Arc::make_mut(&mut eval(&ast, variables)).to_owned())
+                        .collect()),
                 ),
                 _ => panic!("Attempted to call a non-function"),
             }
@@ -84,9 +85,9 @@ pub fn eval(program: &Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value 
         Define(ref name, ref value) => {
             let value = eval(&value, variables);
 
-            variables.insert(name.to_owned().into(), value);
+            variables.insert_mut(Arc::new(name.to_owned()), value);
 
-            Void
+            Arc::new(Void)
         }
     }
 }
@@ -133,6 +134,7 @@ parser! {
 mod benches {
     extern crate test;
 
+    use std::sync::Arc;
     use combine::Parser;
 
     use self::test::{black_box, Bencher};
@@ -339,7 +341,7 @@ someval
     // our testing code needs in order to run.
     #[bench]
     fn run_deep_nesting(b: &mut Bencher) {
-        use std::collections::HashMap;
+        use im::HashMap;
 
         // This just returns a function so `((whatever))` (equivalent
         // to `(whatever())()`) does something useful. Specifically
@@ -351,7 +353,7 @@ someval
         }
 
         let mut env = HashMap::new();
-        env.insert("test".to_owned().into(), Value::InbuiltFunc(callable));
+        env.insert_mut(Arc::new("test".to_owned()), Value::InbuiltFunc(callable));
 
         let (program, _) = expr().easy_parse(DEEP_NESTING).unwrap();
 
@@ -360,13 +362,13 @@ someval
 
     #[bench]
     fn run_real_code(b: &mut Bencher) {
-        use std::collections::HashMap;
+        use im::HashMap;
 
         let mut env = HashMap::new();
 
-        env.insert("eq".to_owned().into(), Value::InbuiltFunc(eq));
-        env.insert("add".to_owned().into(), Value::InbuiltFunc(add));
-        env.insert("if".to_owned().into(), Value::InbuiltFunc(if_));
+        env.insert_mut(Arc::new("eq".to_owned()), Value::InbuiltFunc(eq));
+        env.insert_mut(Arc::new("add".to_owned()), Value::InbuiltFunc(add));
+        env.insert_mut(Arc::new("if".to_owned()), Value::InbuiltFunc(if_));
 
         let (program, _) = ::combine::many1::<Vec<_>, _>(expr())
             .easy_parse(REAL_CODE)
@@ -382,7 +384,7 @@ someval
 
     #[bench]
     fn run_many_variables(b: &mut Bencher) {
-        use std::collections::HashMap;
+        use im::HashMap;
 
         // This just takes anything and returns `Void`. We just
         // want a function that can take any number of arguments
@@ -397,14 +399,14 @@ someval
 
         let mut env = HashMap::new();
 
-        env.insert("ignore".to_owned().into(), Value::InbuiltFunc(ignore));
+        env.insert_mut(Arc::new("ignore".to_owned()), Value::InbuiltFunc(ignore));
 
         b.iter(|| black_box(eval(&program, &mut env)));
     }
 
     #[bench]
     fn run_nested_func(b: &mut Bencher) {
-        use std::collections::HashMap;
+        use im::HashMap;
 
         let (program, _) = expr().easy_parse(NESTED_FUNC).unwrap();
         let mut env = HashMap::new();
