@@ -3,6 +3,7 @@
 #[macro_use]
 extern crate combine;
 
+use std::rc::Rc;
 use std::collections::HashMap;
 
 #[derive(Clone)]
@@ -35,7 +36,7 @@ impl PartialEq for Value {
     }
 }
 
-pub fn eval(program: Ast, variables: &mut HashMap<String, Value>) -> Value {
+pub fn eval(program: Ast, variables: &mut HashMap<Rc<String>, Value>) -> Value {
     use self::Ast::*;
     use self::Value::*;
 
@@ -60,7 +61,7 @@ pub fn eval(program: Ast, variables: &mut HashMap<String, Value>) -> Value {
 
                     for (name, val) in args.into_iter().zip(arguments) {
                         let val = eval(val, variables);
-                        new_scope.insert(name, val);
+                        new_scope.insert(name.into(), val);
                     }
 
                     let mut out = Void;
@@ -83,7 +84,7 @@ pub fn eval(program: Ast, variables: &mut HashMap<String, Value>) -> Value {
         Define(name, value) => {
             let value = eval(*value, variables);
 
-            variables.insert(name, value);
+            variables.insert(name.into(), value);
 
             Void
         }
@@ -350,7 +351,7 @@ someval
         }
 
         let mut env = HashMap::new();
-        env.insert("test".to_owned(), Value::InbuiltFunc(callable));
+        env.insert("test".to_owned().into(), Value::InbuiltFunc(callable));
 
         let (program, _) = expr().easy_parse(DEEP_NESTING).unwrap();
 
@@ -363,9 +364,9 @@ someval
 
         let mut env = HashMap::new();
 
-        env.insert("eq".to_owned(), Value::InbuiltFunc(eq));
-        env.insert("add".to_owned(), Value::InbuiltFunc(add));
-        env.insert("if".to_owned(), Value::InbuiltFunc(if_));
+        env.insert("eq".to_owned().into(), Value::InbuiltFunc(eq));
+        env.insert("add".to_owned().into(), Value::InbuiltFunc(add));
+        env.insert("if".to_owned().into(), Value::InbuiltFunc(if_));
 
         let (program, _) = ::combine::many1::<Vec<_>, _>(expr())
             .easy_parse(REAL_CODE)
@@ -396,7 +397,7 @@ someval
 
         let mut env = HashMap::new();
 
-        env.insert("ignore".to_owned(), Value::InbuiltFunc(ignore));
+        env.insert("ignore".to_owned().into(), Value::InbuiltFunc(ignore));
 
         b.iter(|| black_box(eval(program.clone(), &mut env)));
     }
