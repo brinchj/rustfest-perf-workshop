@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub enum Ast {
-    Lit(Value),
+    Lit(Arc<Value>),
     Variable(String),
     Call(Box<Ast>, Vec<Ast>),
     Define(String, Box<Ast>),
@@ -42,7 +42,7 @@ pub fn eval(program: &Ast, variables: &mut HashMap<String, Value>) -> Arc<Value>
     use self::Value::*;
 
     match *program {
-        Lit(ref val) => Arc::new(val.clone()),
+        Lit(ref val) => val.clone(),
         Variable(ref name) => match variables.get(name) {
             Some(v) => v.clone(),
             _ => panic!("Variable does not exist: {}", &name),
@@ -109,16 +109,16 @@ parser! {
 
         let lambda = char('\\');
         let eq = char('=');
-        let flse = white!(string("#f")).map(|_| Ast::Lit(::Value::False));
+        let flse = white!(string("#f")).map(|_| Ast::Lit(Arc::new(::Value::False)));
         let ident = || white!(many1::<String, _>(letter()));
         let function = (
             white!(lambda),
             white!(between(char('('), char(')'), many::<Vec<_>, _>(ident()))),
             many::<Vec<_>, _>(expr()),
-        ).map(|(_, a, b)| Ast::Lit(::Value::Function(a, b)));
+        ).map(|(_, a, b)| Ast::Lit(Arc::new(::Value::Function(a, b))));
         let define = (white!(eq), ident(), expr()).map(|(_, a, b)| Ast::Define(a, Box::new(b)));
         let lit_num = many1::<String, _>(digit())
-            .map(|i| Ast::Lit(::Value::Int(i.parse().expect("Parsing integer failed"))));
+            .map(|i| Ast::Lit(Arc::new(::Value::Int(i.parse().expect("Parsing integer failed")))));
         let call = (expr(), many(expr())).map(|(func, args)| Ast::Call(Box::new(func), args));
 
         white!(choice!(
