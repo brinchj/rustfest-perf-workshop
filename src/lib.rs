@@ -1,10 +1,10 @@
 #![cfg_attr(test, feature(test))]
 
 #[macro_use]
-extern crate combine;
+pub extern crate combine;
 extern crate im;
 
-use im::HashMap;
+pub use im::HashMap;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -37,18 +37,18 @@ impl PartialEq for Value {
     }
 }
 
-pub fn eval(program: &Ast, variables: &mut HashMap<String, Value>) -> Arc<Value> {
+pub fn eval(program: &Ast, variables: &mut HashMap<String, Value>) -> Result<Arc<Value>, String> {
     use self::Ast::*;
     use self::Value::*;
 
-    match *program {
+    Ok(match *program {
         Lit(ref val) => val.clone(),
         Variable(ref name) => match variables.get(name) {
             Some(v) => v.clone(),
-            _ => panic!("Variable does not exist: {}", &name),
+            _ => return Err(format!("Variable does not exist: {}", &name)),
         },
         Call(ref func, ref arguments) => {
-            let func = eval(&func, variables);
+            let func = eval(&func, variables)?;
 
             match *func {
                 Function(ref args, ref body) => {
@@ -61,35 +61,42 @@ pub fn eval(program: &Ast, variables: &mut HashMap<String, Value>) -> Arc<Value>
                     }
 
                     for (name, val) in args.into_iter().zip(arguments) {
-                        let val = eval(&val, variables);
+                        let val = eval(&val, variables)?;
                         new_scope.insert_mut(Arc::new(name.to_owned()), val);
                     }
 
                     let mut out = Arc::new(Void);
 
                     for stmt in body {
-                        out = eval(&stmt, &mut new_scope);
+                        out = eval(&stmt, &mut new_scope)?;
                     }
 
                     out
                 }
-                InbuiltFunc(func) => Arc::new(func(
-                    arguments
+                InbuiltFunc(func) => {
+                    let results = arguments
                         .into_iter()
-                        .map(|ast| Arc::make_mut(&mut eval(&ast, variables)).to_owned())
-                        .collect()),
-                ),
-                _ => panic!("Attempted to call a non-function"),
+                        .map(|ast| eval(&ast, variables))
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    Arc::new(func(
+                        results
+                            .into_iter()
+                            .map(|mut ast| Arc::make_mut(&mut ast).to_owned())
+                            .collect(),
+                    ))
+                }
+                _ => return Err("Attempted to call a non-function".into()),
             }
         }
         Define(ref name, ref value) => {
-            let value = eval(&value, variables);
+            let value = eval(&value, variables)?;
 
             variables.insert_mut(Arc::new(name.to_owned()), value);
 
             Arc::new(Void)
         }
-    }
+    })
 }
 
 parser! {
@@ -118,7 +125,7 @@ parser! {
         ).map(|(_, a, b)| Ast::Lit(Arc::new(::Value::Function(a, b))));
         let define = (white!(eq), ident(), expr()).map(|(_, a, b)| Ast::Define(a, Box::new(b)));
         let lit_num = many1::<String, _>(digit())
-            .map(|i| Ast::Lit(Arc::new(::Value::Int(i.parse().expect("Parsing integer failed")))));
+            .map(|i| Ast::Lit(Arc::new(::Value::Int(i.parse().unwrap_or(0)))));
         let call = (expr(), many(expr())).map(|(func, args)| Ast::Call(Box::new(func), args));
 
         white!(choice!(
@@ -134,8 +141,8 @@ parser! {
 mod benches {
     extern crate test;
 
-    use std::sync::Arc;
     use combine::Parser;
+    use std::sync::Arc;
 
     use self::test::{black_box, Bencher};
 
